@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SESSION_PREFIX="swarmforge"
-AGENT_WINDOW="swarm"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -20,9 +19,6 @@ CONFIG_FILE="$SWARM_FORGE_DIR/swarmforge.conf"
 ROLES_DIR="$SWARM_FORGE_DIR"
 CONSTITUTION_FILE="$SWARM_FORGE_DIR/constitution.prompt"
 STATE_DIR="$WORKING_DIR/.swarmforge"
-WINDOW_IDS_FILE="$STATE_DIR/window-ids"
-WINDOW_STATE_FILE="$STATE_DIR/windows.tsv"
-WINDOW_WATCHDOG_LOG="$STATE_DIR/window-watchdog.log"
 SESSIONS_FILE="$STATE_DIR/sessions.tsv"
 PROMPTS_DIR="$STATE_DIR/prompts"
 
@@ -34,7 +30,6 @@ typeset -a WORKTREE_NAMES=()
 typeset -a WORKTREE_PATHS=()
 typeset -A ROLE_INDEX=()
 typeset -A WORKTREE_INDEX=()
-typeset -i CLEANUP_OWNER_INDEX=1
 typeset -i i=0
 
 check_dependency() {
@@ -80,7 +75,7 @@ EOF
 }
 
 initialize_git_repo() {
-  if [[ -d "$WORKING_DIR/.git" ]]; then
+  if git -C "$WORKING_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     return
   fi
 
@@ -89,10 +84,6 @@ initialize_git_repo() {
   ensure_initial_gitignore
   git -C "$WORKING_DIR" add .
   git -C "$WORKING_DIR" commit -m "Initial swarmforge repository" >/dev/null
-}
-
-has_command() {
-  command -v "$1" &>/dev/null
 }
 
 remove_nonessential_clone_files() {
@@ -127,7 +118,7 @@ display_name_for_role() {
 }
 
 session_name_for_role() {
-  echo "${SESSION_PREFIX}-$1"
+  echo "${SESSION_PREFIX}:$1"
 }
 
 worktree_path_for_name() {
@@ -185,7 +176,7 @@ parse_config() {
     fi
 
     case "$agent" in
-      claude|codex|none) ;;
+      claude|codex|opencode|none) ;;
       *)
         echo -e "${RED}Error:${RESET} Unsupported agent '$agent' for role '$role'"
         exit 1
@@ -234,12 +225,19 @@ write_sessions_file() {
 
 check_helper_scripts() {
   local helper
-  for helper in swarm-cleanup.sh swarm-window-watchdog.sh swarmlog.sh; do
+  for helper in swarmlog.sh; do
     if [[ ! -x "$SCRIPT_DIR/$helper" ]]; then
       echo -e "${RED}Error:${RESET} Required helper script not found or not executable: $SCRIPT_DIR/$helper"
       exit 1
     fi
   done
+}
+
+remove_obsolete_terminal_window_state() {
+  rm -f \
+    "$STATE_DIR/window-ids" \
+    "$STATE_DIR/windows.tsv" \
+    "$STATE_DIR/window-watchdog.log"
 }
 
 write_notify_script() {
@@ -294,7 +292,7 @@ resolve_session() {
   return 1
 }
 
-TARGET_SESSION=$(resolve_session "$1") || {
+TARGET_PANE=$(resolve_session "$1") || {
   echo "Unknown target: $1" >&2
   exit 1
 }
@@ -302,12 +300,12 @@ TARGET_SESSION=$(resolve_session "$1") || {
 MESSAGE="${*:2}"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 mkdir -p "$PROJECT_DIR/logs"
-echo "[$TIMESTAMP] [$TARGET_SESSION] $MESSAGE" >> "$LOG_FILE"
-tmux send-keys -t "${TARGET_SESSION}:0.0" -l -- "$MESSAGE"
+echo "[$TIMESTAMP] [$TARGET_PANE] $MESSAGE" >> "$LOG_FILE"
+tmux send-keys -t "${TARGET_PANE}.0" -l -- "$MESSAGE"
 sleep 0.15
-tmux send-keys -t "${TARGET_SESSION}:0.0" C-m
+tmux send-keys -t "${TARGET_PANE}.0" C-m
 sleep 0.05
-tmux send-keys -t "${TARGET_SESSION}:0.0" C-j
+tmux send-keys -t "${TARGET_PANE}.0" C-j
 EOF
 
   chmod +x "$SWARM_TOOLS_DIR/notify-agent.sh"
@@ -315,6 +313,7 @@ EOF
 
 prepare_workspace() {
   mkdir -p "$WORKING_DIR/logs" "$WORKING_DIR/agent_context" "$STATE_DIR" "$PROMPTS_DIR" "$SWARM_TOOLS_DIR" "$WORKTREES_DIR"
+  remove_obsolete_terminal_window_state
   check_helper_scripts
   write_sessions_file
   write_notify_script
@@ -345,17 +344,28 @@ check_backend_dependencies() {
     case "${AGENTS[$i]}" in
       claude) check_dependency claude ;;
       codex) check_dependency codex ;;
+      opencode) check_dependency opencode ;;
     esac
   done
 }
 
-create_role_session() {
-  local session="$1"
-  local title="$2"
+create_swarm_session() {
+  local role="${ROLES[1]}"
 
-  tmux new-session -d -s "$session" -n "$AGENT_WINDOW"
-  tmux rename-window -t "$session:$AGENT_WINDOW" "$title"
-  tmux set-window-option -t "$session:$title" allow-rename off
+  tmux new-session -d -s "$SESSION_PREFIX" -n "$role"
+  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
+}
+
+create_role_window() {
+  local index="$1"
+  local role="${ROLES[$index]}"
+
+  if (( index == 1 )); then
+    return
+  fi
+
+  tmux new-window -t "$SESSION_PREFIX" -n "$role"
+  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
 }
 
 write_agent_instruction_file() {
@@ -373,7 +383,7 @@ launch_role() {
   local index="$1"
   local role="${ROLES[$index]}"
   local agent="${AGENTS[$index]}"
-  local session="${SESSIONS[$index]}"
+  local target="${SESSIONS[$index]}"
   local display="${DISPLAY_NAMES[$index]}"
   local role_worktree="${WORKTREE_PATHS[$index]}"
   local prompt_file="$PROMPTS_DIR/${role}.md"
@@ -381,7 +391,7 @@ launch_role() {
 
   if [[ "$agent" == "none" ]]; then
     if [[ "$role" == "logger" ]]; then
-      tmux send-keys -t "${session}:${display}.0" \
+      tmux send-keys -t "${target}.0" \
         "cd '$WORKING_DIR' && touch logs/agent_messages.log && tail -f logs/agent_messages.log" Enter
     fi
     echo -e "  ${CYAN}[${display}]${RESET} opened without agent backend"
@@ -397,38 +407,13 @@ launch_role() {
     codex)
       launch_cmd="export PATH='$SWARM_TOOLS_DIR:$SCRIPT_DIR':\$PATH && cd '$role_worktree' && codex -C '$role_worktree' \"\$(cat '$prompt_file')\""
       ;;
+    opencode)
+      launch_cmd="export PATH='$SWARM_TOOLS_DIR:$SCRIPT_DIR':\$PATH && cd '$role_worktree' && opencode '$role_worktree' --prompt \"\$(cat '$prompt_file')\""
+      ;;
   esac
 
-  if [[ "$index" -eq "${CLEANUP_OWNER_INDEX}" ]]; then
-    launch_cmd="${launch_cmd}; exit_code=\$?; nohup '$SCRIPT_DIR/swarm-cleanup.sh' '$WINDOW_IDS_FILE'"
-    local session_name
-    for session_name in "${SESSIONS[@]}"; do
-      [[ -n "$session_name" ]] || continue
-      launch_cmd+=" '$session_name'"
-    done
-    launch_cmd+=" >/dev/null 2>&1 &!; exit \$exit_code"
-  fi
-
-  tmux send-keys -t "${session}:${display}.0" "$launch_cmd" Enter
-  echo -e "  ${CYAN}[${display}]${RESET} started in session ${session}"
-}
-
-open_terminal_window() {
-  local session="$1"
-  local title="$2"
-  osascript <<EOF
-tell application "Terminal"
-  activate
-  set newTab to do script ""
-  do script "cd '$WORKING_DIR' && exec tmux attach-session -t '${session}'" in newTab
-  set custom title of newTab to "${title}"
-  return id of front window
-end tell
-EOF
-}
-
-choose_cleanup_owner() {
-  CLEANUP_OWNER_INDEX=1
+  tmux send-keys -t "${target}.0" "$launch_cmd" Enter
+  echo -e "  ${CYAN}[${display}]${RESET} started in tmux window ${target}"
 }
 
 check_dependency tmux
@@ -439,16 +424,11 @@ parse_config
 check_backend_dependencies
 prepare_workspace
 prepare_worktrees
-choose_cleanup_owner
 
-local_session=""
-for local_session in "${SESSIONS[@]}"; do
-  [[ -n "$local_session" ]] || continue
-  if tmux has-session -t "$local_session" 2>/dev/null; then
-    echo -e "${YELLOW}Existing SwarmForge session found: ${local_session}. Killing it...${RESET}"
-    tmux kill-session -t "$local_session"
-  fi
-done
+if tmux has-session -t "$SESSION_PREFIX" 2>/dev/null; then
+  echo -e "${YELLOW}Existing SwarmForge session found: ${SESSION_PREFIX}. Killing it...${RESET}"
+  tmux kill-session -t "$SESSION_PREFIX"
+fi
 
 echo -e "${CYAN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════════╗"
@@ -457,9 +437,10 @@ echo "  ║   Disciplined agents build better software    ║"
 echo "  ╚═══════════════════════════════════════════════╝"
 echo -e "${RESET}"
 
-echo -e "${GREEN}Launching SwarmForge tmux sessions...${RESET}"
+echo -e "${GREEN}Launching SwarmForge tmux session...${RESET}"
+create_swarm_session
 for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
-  create_role_session "${SESSIONS[$i]}" "${DISPLAY_NAMES[$i]}"
+  create_role_window "$i"
 done
 
 echo -e "${GREEN}Starting agents...${RESET}"
@@ -470,34 +451,14 @@ done
 echo ""
 echo -e "${GREEN}${BOLD}SwarmForge is ready.${RESET}"
 echo -e "Working directory: ${WORKING_DIR}"
-echo -e "Sessions:"
+echo -e "Tmux session: ${SESSION_PREFIX}"
+echo -e "Windows:"
 for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
   echo -e "  ${DISPLAY_NAMES[$i]}: ${SESSIONS[$i]}"
 done
 echo ""
 echo -e "${GREEN}Tip: Use $WORKING_DIR/swarmtools/notify-agent.sh <role-or-index> \"message\" while the swarm is running.${RESET}"
-echo -e "${GREEN}Tip: Reattach manually with 'tmux attach-session -t <session-name>' if needed.${RESET}"
+echo -e "${GREEN}Tip: Switch role windows with the normal tmux window controls.${RESET}"
 echo ""
 
-if has_command osascript; then
-  echo -e "Opening separate Terminal windows for each session..."
-  : > "$WINDOW_IDS_FILE"
-  : > "$WINDOW_STATE_FILE"
-  for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
-    window_id="$(open_terminal_window "${SESSIONS[$i]}" "SwarmForge ${DISPLAY_NAMES[$i]}")"
-    echo "$window_id" >> "$WINDOW_IDS_FILE"
-    printf '%s\t%s\t%s\t%s\n' \
-      "$i" \
-      "$window_id" \
-      "${SESSIONS[$i]}" \
-      "SwarmForge ${DISPLAY_NAMES[$i]}" >> "$WINDOW_STATE_FILE"
-  done
-  nohup "$SCRIPT_DIR/swarm-window-watchdog.sh" \
-    "$WINDOW_STATE_FILE" \
-    "$WINDOW_IDS_FILE" \
-    "$CLEANUP_OWNER_INDEX" \
-    "$WORKING_DIR" > "$WINDOW_WATCHDOG_LOG" 2>&1 &
-else
-  echo -e "${YELLOW}osascript not found; attaching current shell to '${SESSIONS[$CLEANUP_OWNER_INDEX]}' instead.${RESET}"
-  tmux attach-session -t "${SESSIONS[$CLEANUP_OWNER_INDEX]}"
-fi
+tmux attach-session -t "$SESSION_PREFIX"
