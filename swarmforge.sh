@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SESSION_PREFIX="swarmforge"
-SWARM_SESSION="$SESSION_PREFIX"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -25,13 +24,12 @@ PROMPTS_DIR="$STATE_DIR/prompts"
 
 typeset -a ROLES=()
 typeset -a AGENTS=()
-typeset -a TMUX_TARGETS=()
+typeset -a SESSIONS=()
 typeset -a DISPLAY_NAMES=()
 typeset -a WORKTREE_NAMES=()
 typeset -a WORKTREE_PATHS=()
 typeset -A ROLE_INDEX=()
 typeset -A WORKTREE_INDEX=()
-typeset -i CLEANUP_OWNER_INDEX=1
 typeset -i i=0
 
 check_dependency() {
@@ -77,7 +75,7 @@ EOF
 }
 
 initialize_git_repo() {
-  if [[ -d "$WORKING_DIR/.git" ]]; then
+  if git -C "$WORKING_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     return
   fi
 
@@ -119,12 +117,8 @@ display_name_for_role() {
   echo "$label"
 }
 
-legacy_session_name_for_role() {
-  echo "${SESSION_PREFIX}-$1"
-}
-
-tmux_target_for_role() {
-  echo "${SWARM_SESSION}:$1.0"
+session_name_for_role() {
+  echo "${SESSION_PREFIX}:$1"
 }
 
 worktree_path_for_name() {
@@ -200,7 +194,7 @@ parse_config() {
     fi
     ROLES+=("$role")
     AGENTS+=("$agent")
-    TMUX_TARGETS+=("$(tmux_target_for_role "$role")")
+    SESSIONS+=("$(session_name_for_role "$role")")
     DISPLAY_NAMES+=("$(display_name_for_role "$role")")
     WORKTREE_NAMES+=("$worktree")
     if [[ "$worktree" == "none" || "$worktree" == "master" ]]; then
@@ -223,7 +217,7 @@ write_sessions_file() {
     printf '%s\t%s\t%s\t%s\t%s\n' \
       "$i" \
       "${ROLES[$i]}" \
-      "${TMUX_TARGETS[$i]}" \
+      "${SESSIONS[$i]}" \
       "${DISPLAY_NAMES[$i]}" \
       "${AGENTS[$i]}" >> "$SESSIONS_FILE"
   done
@@ -284,13 +278,13 @@ if [[ ! -f "$SESSIONS_FILE" ]]; then
   exit 1
 fi
 
-resolve_target() {
+resolve_session() {
   local target="${1:l}"
-  local index role tmux_target display agent
+  local index role session display agent
 
-  while IFS=$'\t' read -r index role tmux_target display agent; do
+  while IFS=$'\t' read -r index role session display agent; do
     if [[ "$target" == "${index:l}" || "$target" == "${role:l}" ]]; then
-      echo "$tmux_target"
+      echo "$session"
       return 0
     fi
   done < "$SESSIONS_FILE"
@@ -298,7 +292,7 @@ resolve_target() {
   return 1
 }
 
-TARGET_PANE=$(resolve_target "$1") || {
+TARGET_PANE=$(resolve_session "$1") || {
   echo "Unknown target: $1" >&2
   exit 1
 }
@@ -307,11 +301,11 @@ MESSAGE="${*:2}"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 mkdir -p "$PROJECT_DIR/logs"
 echo "[$TIMESTAMP] [$TARGET_PANE] $MESSAGE" >> "$LOG_FILE"
-tmux send-keys -t "$TARGET_PANE" -l -- "$MESSAGE"
+tmux send-keys -t "${TARGET_PANE}.0" -l -- "$MESSAGE"
 sleep 0.15
-tmux send-keys -t "$TARGET_PANE" C-m
+tmux send-keys -t "${TARGET_PANE}.0" C-m
 sleep 0.05
-tmux send-keys -t "$TARGET_PANE" C-j
+tmux send-keys -t "${TARGET_PANE}.0" C-j
 EOF
 
   chmod +x "$SWARM_TOOLS_DIR/notify-agent.sh"
@@ -356,16 +350,22 @@ check_backend_dependencies() {
 }
 
 create_swarm_session() {
-  local i role
+  local role="${ROLES[1]}"
 
-  tmux new-session -d -s "$SWARM_SESSION" -n "${ROLES[1]}"
-  tmux set-window-option -t "${SWARM_SESSION}:${ROLES[1]}" allow-rename off
+  tmux new-session -d -s "$SESSION_PREFIX" -n "$role"
+  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
+}
 
-  for (( i = 2; i <= ${#ROLES[@]}; i++ )); do
-    role="${ROLES[$i]}"
-    tmux new-window -t "${SWARM_SESSION}:" -n "$role"
-    tmux set-window-option -t "${SWARM_SESSION}:$role" allow-rename off
-  done
+create_role_window() {
+  local index="$1"
+  local role="${ROLES[$index]}"
+
+  if (( index == 1 )); then
+    return
+  fi
+
+  tmux new-window -t "$SESSION_PREFIX" -n "$role"
+  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
 }
 
 write_agent_instruction_file() {
@@ -383,7 +383,7 @@ launch_role() {
   local index="$1"
   local role="${ROLES[$index]}"
   local agent="${AGENTS[$index]}"
-  local target="${TMUX_TARGETS[$index]}"
+  local target="${SESSIONS[$index]}"
   local display="${DISPLAY_NAMES[$index]}"
   local role_worktree="${WORKTREE_PATHS[$index]}"
   local prompt_file="$PROMPTS_DIR/${role}.md"
@@ -391,7 +391,7 @@ launch_role() {
 
   if [[ "$agent" == "none" ]]; then
     if [[ "$role" == "logger" ]]; then
-      tmux send-keys -t "$target" \
+      tmux send-keys -t "${target}.0" \
         "cd '$WORKING_DIR' && touch logs/agent_messages.log && tail -f logs/agent_messages.log" Enter
     fi
     echo -e "  ${CYAN}[${display}]${RESET} opened without agent backend"
@@ -412,22 +412,8 @@ launch_role() {
       ;;
   esac
 
-  tmux send-keys -t "$target" "$launch_cmd" Enter
-  echo -e "  ${CYAN}[${display}]${RESET} started in tmux window ${role}"
-}
-
-choose_cleanup_owner() {
-  CLEANUP_OWNER_INDEX=1
-}
-
-attach_to_swarm_session() {
-  tmux select-window -t "${SWARM_SESSION}:${ROLES[$CLEANUP_OWNER_INDEX]}"
-
-  if [[ -n "${TMUX:-}" ]]; then
-    tmux switch-client -t "$SWARM_SESSION"
-  else
-    tmux attach-session -t "$SWARM_SESSION"
-  fi
+  tmux send-keys -t "${target}.0" "$launch_cmd" Enter
+  echo -e "  ${CYAN}[${display}]${RESET} started in tmux window ${target}"
 }
 
 check_dependency tmux
@@ -438,21 +424,11 @@ parse_config
 check_backend_dependencies
 prepare_workspace
 prepare_worktrees
-choose_cleanup_owner
 
-if tmux has-session -t "$SWARM_SESSION" 2>/dev/null; then
-  echo -e "${YELLOW}Existing SwarmForge session found: ${SWARM_SESSION}. Killing it...${RESET}"
-  tmux kill-session -t "$SWARM_SESSION"
+if tmux has-session -t "$SESSION_PREFIX" 2>/dev/null; then
+  echo -e "${YELLOW}Existing SwarmForge session found: ${SESSION_PREFIX}. Killing it...${RESET}"
+  tmux kill-session -t "$SESSION_PREFIX"
 fi
-
-local legacy_session=""
-for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
-  legacy_session="$(legacy_session_name_for_role "${ROLES[$i]}")"
-  if tmux has-session -t "$legacy_session" 2>/dev/null; then
-    echo -e "${YELLOW}Existing legacy SwarmForge session found: ${legacy_session}. Killing it...${RESET}"
-    tmux kill-session -t "$legacy_session"
-  fi
-done
 
 echo -e "${CYAN}${BOLD}"
 echo "  ╔═══════════════════════════════════════════════╗"
@@ -463,6 +439,9 @@ echo -e "${RESET}"
 
 echo -e "${GREEN}Launching SwarmForge tmux session...${RESET}"
 create_swarm_session
+for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
+  create_role_window "$i"
+done
 
 echo -e "${GREEN}Starting agents...${RESET}"
 for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
@@ -472,14 +451,14 @@ done
 echo ""
 echo -e "${GREEN}${BOLD}SwarmForge is ready.${RESET}"
 echo -e "Working directory: ${WORKING_DIR}"
-echo -e "Tmux session: ${SWARM_SESSION}"
+echo -e "Tmux session: ${SESSION_PREFIX}"
 echo -e "Windows:"
 for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
-  echo -e "  ${DISPLAY_NAMES[$i]}: ${ROLES[$i]}"
+  echo -e "  ${DISPLAY_NAMES[$i]}: ${SESSIONS[$i]}"
 done
 echo ""
 echo -e "${GREEN}Tip: Use $WORKING_DIR/swarmtools/notify-agent.sh <role-or-index> \"message\" while the swarm is running.${RESET}"
-echo -e "${GREEN}Tip: Use tmux window navigation to switch roles, or reattach manually with 'tmux attach-session -t ${SWARM_SESSION}'.${RESET}"
+echo -e "${GREEN}Tip: Switch role windows with the normal tmux window controls.${RESET}"
 echo ""
 
-attach_to_swarm_session
+tmux attach-session -t "$SESSION_PREFIX"
