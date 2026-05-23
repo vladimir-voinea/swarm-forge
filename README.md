@@ -129,7 +129,7 @@ Use these example directories as starting points for project-local `swarmforge/`
 - In the directory where you want to use SwarmForge, pull the repository contents without creating a Git remote:
 
   ```sh
-  curl -L https://github.com/unclebob/swarm-forge/archive/refs/heads/main.tar.gz | tar -xz --strip-components=1
+  curl -L https://github.com/vladimir-voinea/swarm-forge/archive/refs/heads/main.tar.gz | tar -xz --strip-components=1
   ```
 	
 ## Running SwarmForge
