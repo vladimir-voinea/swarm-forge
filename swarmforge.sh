@@ -86,18 +86,6 @@ initialize_git_repo() {
   git -C "$WORKING_DIR" commit -m "Initial swarmforge repository" >/dev/null
 }
 
-remove_nonessential_clone_files() {
-  if [[ "${WORKING_DIR:t}" == "swarm-forge" ]]; then
-    return
-  fi
-
-  if [[ -d "$STATE_DIR" ]]; then
-    return
-  fi
-
-  rm -rf "$WORKING_DIR/README.md" "$WORKING_DIR/SwarmForgeInitSpec.md" "$WORKING_DIR/examples"
-}
-
 display_name_for_role() {
   local role="$1"
   local normalized="${role//[-_]/ }"
@@ -123,6 +111,27 @@ session_name_for_role() {
 
 worktree_path_for_name() {
   echo "$WORKTREES_DIR/$1"
+}
+
+branch_namespace_for_working_dir() {
+  local digest
+  digest="$(printf '%s' "$WORKING_DIR" | git -C "$WORKING_DIR" hash-object --stdin)"
+  echo "${digest[1,12]}"
+}
+
+role_branch_name_for_worktree() {
+  local worktree_name="$1"
+  local namespace="$2"
+  local base="swarmforge-${namespace}-${worktree_name}"
+  local candidate="$base"
+  local suffix=2
+
+  while git -C "$WORKING_DIR" show-ref --verify --quiet "refs/heads/$candidate"; do
+    candidate="${base}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+
+  echo "$candidate"
 }
 
 parse_config() {
@@ -320,11 +329,12 @@ prepare_workspace() {
 }
 
 prepare_worktrees() {
-  local i worktree_name worktree_path branch_name
+  local i worktree_name worktree_path branch_name branch_namespace
+  branch_namespace="$(branch_namespace_for_working_dir)"
+
   for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
     worktree_name="${WORKTREE_NAMES[$i]}"
     worktree_path="${WORKTREE_PATHS[$i]}"
-    branch_name="swarmforge-${worktree_name}"
 
     if [[ "$worktree_name" == "none" || "$worktree_name" == "master" ]]; then
       continue
@@ -334,7 +344,8 @@ prepare_worktrees() {
       continue
     fi
 
-    git -C "$WORKING_DIR" worktree add --force -B "$branch_name" "$worktree_path" HEAD >/dev/null
+    branch_name="$(role_branch_name_for_worktree "$worktree_name" "$branch_namespace")"
+    git -C "$WORKING_DIR" worktree add --force -b "$branch_name" "$worktree_path" HEAD >/dev/null
   done
 }
 
@@ -418,7 +429,6 @@ launch_role() {
 
 check_dependency tmux
 check_dependency git
-remove_nonessential_clone_files
 initialize_git_repo
 parse_config
 check_backend_dependencies
