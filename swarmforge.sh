@@ -371,10 +371,12 @@ create_role_window() {
 write_agent_instruction_file() {
   local role="$1"
   local prompt_file="$2"
+  local agent="$3"
 
   cat > "$prompt_file" <<EOF
 Read swarmforge/constitution.prompt, then read every file it refers to recursively, and obey all of those instructions.
 Read swarmforge/${role}.prompt, then read every file it refers to recursively, and follow all of those instructions.
+Your configured agent backend for this role is: ${agent}.
 For handoffs, run $SWARM_TOOLS_DIR/notify-agent.sh directly instead of relying on PATH lookup.
 EOF
 }
@@ -398,7 +400,7 @@ launch_role() {
     return
   fi
 
-  write_agent_instruction_file "$role" "$prompt_file"
+  write_agent_instruction_file "$role" "$prompt_file" "$agent"
 
   case "$agent" in
     claude)
