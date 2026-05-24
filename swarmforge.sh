@@ -125,6 +125,27 @@ worktree_path_for_name() {
   echo "$WORKTREES_DIR/$1"
 }
 
+append_role() {
+  local role="$1"
+  local agent="$2"
+  local worktree="$3"
+
+  ROLE_INDEX[$role]=${#ROLES[@]}
+  if [[ "$worktree" != "none" && "$worktree" != "master" ]]; then
+    WORKTREE_INDEX[$worktree]=${#ROLES[@]}
+  fi
+  ROLES+=("$role")
+  AGENTS+=("$agent")
+  SESSIONS+=("$(session_name_for_role "$role")")
+  DISPLAY_NAMES+=("$(display_name_for_role "$role")")
+  WORKTREE_NAMES+=("$worktree")
+  if [[ "$worktree" == "none" || "$worktree" == "master" ]]; then
+    WORKTREE_PATHS+=("$WORKING_DIR")
+  else
+    WORKTREE_PATHS+=("$(worktree_path_for_name "$worktree")")
+  fi
+}
+
 parse_config() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     echo -e "${RED}Error:${RESET} Config not found at $CONFIG_FILE"
@@ -188,26 +209,21 @@ parse_config() {
       exit 1
     fi
 
-    ROLE_INDEX[$role]=${#ROLES[@]}
-    if [[ "$worktree" != "none" && "$worktree" != "master" ]]; then
-      WORKTREE_INDEX[$worktree]=${#ROLES[@]}
-    fi
-    ROLES+=("$role")
-    AGENTS+=("$agent")
-    SESSIONS+=("$(session_name_for_role "$role")")
-    DISPLAY_NAMES+=("$(display_name_for_role "$role")")
-    WORKTREE_NAMES+=("$worktree")
-    if [[ "$worktree" == "none" || "$worktree" == "master" ]]; then
-      WORKTREE_PATHS+=("$WORKING_DIR")
-    else
-      WORKTREE_PATHS+=("$(worktree_path_for_name "$worktree")")
-    fi
+    append_role "$role" "$agent" "$worktree"
   done < "$CONFIG_FILE"
 
   if (( ${#ROLES[@]} == 0 )); then
     echo -e "${RED}Error:${RESET} No windows defined in $CONFIG_FILE"
     exit 1
   fi
+}
+
+ensure_logger_window() {
+  if [[ -n "${ROLE_INDEX[logger]:-}" ]]; then
+    return
+  fi
+
+  append_role "logger" "none" "none"
 }
 
 write_sessions_file() {
@@ -311,12 +327,68 @@ EOF
   chmod +x "$SWARM_TOOLS_DIR/notify-agent.sh"
 }
 
+write_log_formatter_script() {
+  cat > "$SWARM_TOOLS_DIR/format-agent-log.sh" <<'EOF'
+#!/usr/bin/env zsh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="${SCRIPT_DIR:h}"
+SESSIONS_FILE="$PROJECT_DIR/.swarmforge/sessions.tsv"
+LOG_FILE="$PROJECT_DIR/logs/agent_messages.log"
+
+mkdir -p "$PROJECT_DIR/logs"
+touch "$LOG_FILE"
+
+awk -F '\t' '
+  BEGIN {
+    cyan = "\033[0;36m"
+    green = "\033[0;32m"
+    yellow = "\033[1;33m"
+    bold = "\033[1m"
+    reset = "\033[0m"
+    printf "%s%s%-19s  %-18s  %s%s\n", bold, cyan, "TIME", "TARGET", "MESSAGE", reset
+    printf "%s%s\n", cyan, "-------------------  ------------------  -----------------------------------------------", reset
+  }
+  FILENAME == ARGV[1] {
+    target_label[$3] = $4
+    next
+  }
+  {
+    if ($0 ~ /^\[[^]]+\] \[[^]]+\] /) {
+      time = $0
+      sub(/^\[/, "", time)
+      sub(/\].*/, "", time)
+
+      target = $0
+      sub(/^\[[^]]+\] \[/, "", target)
+      sub(/\].*/, "", target)
+
+      message = $0
+      sub(/^\[[^]]+\] \[[^]]+\] /, "", message)
+
+      if (target in target_label) {
+        target = target_label[target]
+      }
+      printf "%s%-19s%s  %s%-18s%s  %s\n", yellow, time, reset, green, target, reset, message
+    } else {
+      printf "%s\n", $0
+    }
+    fflush()
+  }
+' "$SESSIONS_FILE" <(tail -n +1 -F "$LOG_FILE")
+EOF
+
+  chmod +x "$SWARM_TOOLS_DIR/format-agent-log.sh"
+}
+
 prepare_workspace() {
   mkdir -p "$WORKING_DIR/logs" "$WORKING_DIR/agent_context" "$STATE_DIR" "$PROMPTS_DIR" "$SWARM_TOOLS_DIR" "$WORKTREES_DIR"
   remove_obsolete_terminal_window_state
   check_helper_scripts
   write_sessions_file
   write_notify_script
+  write_log_formatter_script
 }
 
 prepare_worktrees() {
@@ -394,7 +466,7 @@ launch_role() {
   if [[ "$agent" == "none" ]]; then
     if [[ "$role" == "logger" ]]; then
       tmux send-keys -t "${target}.0" \
-        "cd '$WORKING_DIR' && touch logs/agent_messages.log && tail -f logs/agent_messages.log" Enter
+        "cd '$WORKING_DIR' && '$SWARM_TOOLS_DIR/format-agent-log.sh'" Enter
     fi
     echo -e "  ${CYAN}[${display}]${RESET} opened without agent backend"
     return
@@ -423,6 +495,7 @@ check_dependency git
 remove_nonessential_clone_files
 initialize_git_repo
 parse_config
+ensure_logger_window
 check_backend_dependencies
 prepare_workspace
 prepare_worktrees

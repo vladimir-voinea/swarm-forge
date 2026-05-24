@@ -17,11 +17,12 @@ It provides a shared structure for role-specific prompts, worktree assignment, t
 SwarmForge is a lightweight, tmux-based orchestration layer that:
 
 - Launches a **config-driven swarm** from a project-local `swarmforge/swarmforge.conf`
-- Creates one tmux session with one tmux window per configured role
+- Creates one tmux session with one tmux window per configured role, plus an automatic logger window
 - Reads behavior from project-local `swarmforge/<role>.prompt` files plus a layered `swarmforge/constitution.prompt`
 - Supports per-role backends such as `claude`, `codex`, `opencode`, or `none`
 - Creates a project-local `swarmtools/` directory with notification helpers for the active swarm
 - Creates one git worktree per configured role under `.worktrees/`
+- Adds a `logger` utility window automatically when the config does not define one
 - Initializes a git repository in a new working directory and creates a first commit with `logs/` and `agent_context/` ignored
 - Keeps all swarm state local to the working directory in `.swarmforge/`
 
@@ -31,7 +32,7 @@ SwarmForge is a lightweight, tmux-based orchestration layer that:
 - **Project-Local Roles** — Each role is defined by `swarmforge/<role>.prompt` in the working tree being orchestrated.
 - **Layered Constitution** — `swarmforge/constitution.prompt` can delegate to subordinate files such as `swarmforge/constitution/project.prompt`, `engineering.prompt`, and `workflow.prompt`.
 - **Backend Selection Per Role** — A role can launch `claude`, `codex`, `opencode`, or no agent at all.
-- **Observable Swarm** — Attach one terminal to tmux and switch between role windows in real time.
+- **Observable Swarm** — Attach one terminal to tmux and switch between role windows in real time. A logger window shows formatted inter-agent messages from `logs/agent_messages.log`.
 - **Self-Hosted & Lightweight** — Runs locally in tmux and Terminal with minimal machinery.
 
 ## Constitution And Roles
@@ -59,7 +60,7 @@ The default three-agent workflow is:
 - `coder` implements one small slice at a time and hands off completed work
 - `reviewer` performs deeper verification and quality checks before final handoff
 
-`logger` remains an optional utility role with no agent backend.
+`logger` is an automatic utility role with no agent backend unless the project defines its own logger window.
 
 ## How It Works (High Level)
 
@@ -69,10 +70,11 @@ The default three-agent workflow is:
 4. Add `swarmforge.sh` to your shell `PATH` before startup.
 5. Run `swarmforge.sh <working-directory>` or run it from inside that directory.
 6. If the working directory is not already a git repo, startup runs `git init`, renames the initial branch to `master`, writes `.gitignore` entries for `.swarmforge/`, `.worktrees/`, `swarmtools/`, `logs/`, and `agent_context/`, and makes the first commit from the current project state.
-7. Startup creates a git worktree for each window under `.worktrees/<worktree>`, unless the worktree field is `none` or `master`.
-8. Startup creates `swarmtools/notify-agent.sh` for that project.
-9. SwarmForge creates one tmux session, creates a tmux window for each role, launches each configured backend in its assigned worktree, and attaches the current terminal to the session.
-10. Roles communicate through helper commands such as `notify-agent.sh`.
+7. Startup adds a `logger` utility window automatically unless `swarmforge.conf` already defines one.
+8. Startup creates a git worktree for each window under `.worktrees/<worktree>`, unless the worktree field is `none` or `master`.
+9. Startup creates `swarmtools/notify-agent.sh` and `swarmtools/format-agent-log.sh` for that project.
+10. SwarmForge creates one tmux session, creates a tmux window for each role, launches each configured backend in its assigned worktree, and attaches the current terminal to the session.
+11. Roles communicate through helper commands such as `notify-agent.sh`.
 
 ## The `swarmforge.conf` File
 
@@ -105,7 +107,7 @@ window refactorer opencode refactorer
 window architect codex architect
 ```
 
-`logger` is a utility role. When configured with `none`, it tails `logs/agent_messages.log`.
+`logger` is a utility role. SwarmForge adds it automatically when the config does not include it. The logger runs with the `none` backend and displays `logs/agent_messages.log` as a formatted terminal table with message time, target role, and message text.
 
 In the example above, the agents run in these worktrees:
 
