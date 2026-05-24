@@ -1,6 +1,6 @@
 # Coder Pool Dispatch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a coder pool so `notify-agent.sh coder "..."` dispatches to the first free coder and queued coder work is picked up by the next coder that becomes free.
 
@@ -19,21 +19,21 @@
 - Modify: `swarmforge/coder.prompt`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write the failing dispatch test**
+- [x] **Step 1: Write the failing dispatch test**
 
 Create `tests/coder_pool_dispatch_test.zsh` with test setup that extracts `notify-agent.sh`, stubs `tmux`, writes fake `sessions.tsv`, and asserts pooled coder routing.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `zsh tests/coder_pool_dispatch_test.zsh`
 
 Expected: FAIL because `notify-agent.sh coder "..."` cannot resolve a pool when only `coder-1` and `coder-2` exist.
 
-- [ ] **Step 3: Allow numbered coder roles to reuse coder prompt**
+- [x] **Step 3: Allow numbered coder roles to reuse coder prompt**
 
 In `swarmforge.sh`, add a helper that maps `coder-<number>` prompt lookup to `swarmforge/coder.prompt`, and use it wherever role prompts are validated or read.
 
-- [ ] **Step 4: Implement generated helper pool state**
+- [x] **Step 4: Implement generated helper pool state**
 
 In the generated `notify-agent.sh`, add:
 
@@ -46,26 +46,26 @@ In the generated `notify-agent.sh`, add:
 - `dispatch_pool_message`
 - `mark_role_free`
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `zsh tests/coder_pool_dispatch_test.zsh`
 
 Expected: PASS.
 
-- [ ] **Step 6: Update default config and prompts**
+- [x] **Step 6: Update default config and prompts**
 
 Change `swarmforge/swarmforge.conf` to include `coder-1` and `coder-2`. Update `swarmforge/coder.prompt` so each coder marks itself free with `notify-agent.sh --free <own-role>` after completing a task.
 
-- [ ] **Step 7: Update documentation**
+- [x] **Step 7: Update documentation**
 
 Update `README.md` to document coder pools, numbered coder prompt reuse, busy markers, queueing, and the `--free` command.
 
-- [ ] **Step 8: Run all tests**
+- [x] **Step 8: Run all tests**
 
 Run: `for t in tests/*.zsh; do zsh "$t"; done`
 
 Expected: all tests pass.
 
-- [ ] **Step 9: Commit implementation**
+- [x] **Step 9: Commit implementation**
 
 Commit the complete implementation with a detailed message explaining the routing contract, state files, and docs changes.
