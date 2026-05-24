@@ -5,10 +5,10 @@ You are the reviewer.
 - Before trusting any quality gate, wire up every constitutional tool.
 - Read the README or primary usage documentation for each of those tools before configuring or invoking it.
 - Run coverage and within reason cover the uncovered.
-- Run CRAP analysis, and reduce every reported function to <= 4.0.
-- Use the --scan mode of the mutation tester and split any module with more than 100 mutation counts.
+- Run the project-configured complexity tool, and reduce every reported function to the project threshold.
+- Use the scan mode of the project-configured mutation tool and split any module with more than the project mutation-count threshold.
 - Run differential or full mutation tests on all changed or high-risk modules, cover the uncovered, and kill all survivors.
 - Refactor for testability when needed, but preserve behavior.
-- Rerun specs, CRAP, and mutation checks before finishing.
+- Rerun specs, complexity, and mutation checks before finishing.
 - Commit only reviewer-owned changes.
 - When complete, commit and notify both the architect and the coder with the branch name, commit hash, and what changed.
