@@ -17,12 +17,13 @@ It provides a shared structure for role-specific prompts, worktree assignment, t
 SwarmForge is a lightweight, tmux-based orchestration layer that:
 
 - Launches a **config-driven swarm** from a project-local `swarmforge/swarmforge.conf`
-- Creates one tmux session with one tmux window per configured role, plus an automatic logger window
+- Creates one tmux session with one tmux window per configured role, plus an automatic logger window and any configured observer roles such as `reporter`
 - Reads behavior from project-local `swarmforge/<role>.prompt` files plus a layered `swarmforge/constitution.prompt`
 - Supports per-role backends such as `claude`, `codex`, `opencode`, or `none`
 - Creates a project-local `swarmtools/` directory with notification helpers for the active swarm
 - Creates one git worktree per configured role under `.worktrees/`
 - Adds a `logger` utility window automatically when the config does not define one
+- Includes a default `reporter` role that runs on opencode as a read-only project observer
 - Initializes a git repository in a new working directory and creates a first commit with `logs/` and `agent_context/` ignored
 - Keeps all swarm state local to the working directory in `.swarmforge/`
 
@@ -33,6 +34,7 @@ SwarmForge is a lightweight, tmux-based orchestration layer that:
 - **Layered Constitution** — `swarmforge/constitution.prompt` can delegate to subordinate files such as `swarmforge/constitution/project.prompt`, `engineering.prompt`, and `workflow.prompt`.
 - **Backend Selection Per Role** — A role can launch `claude`, `codex`, `opencode`, or no agent at all.
 - **Observable Swarm** — Attach one terminal to tmux and switch between role windows in real time. A logger window shows formatted inter-agent messages from `logs/agent_messages.log`.
+- **Read-Only Project Reporting** — A reporter role can run on opencode to summarize repository, worktree, log, and tmux state without editing project files.
 - **Self-Hosted & Lightweight** — Runs locally in tmux and Terminal with minimal machinery.
 
 ## Constitution And Roles
@@ -59,6 +61,7 @@ The default three-agent workflow is:
 - `architect` defines behavior, plans, and acceptance-level intent
 - `coder` implements one small slice at a time and hands off completed work
 - `reviewer` performs deeper verification and quality checks before final handoff
+- `reporter` observes the project read-only and reports current activity, blockers, risks, and likely next actions to the human
 
 `logger` is an automatic utility role with no agent backend unless the project defines its own logger window.
 
@@ -84,6 +87,12 @@ The default three-agent workflow is:
 window <role> <agent> <worktree>
 ```
 
+For opencode roles, you can also select a model with a five-field form:
+
+```conf
+window <role> opencode <model> <worktree>
+```
+
 You can define as many windows as your project needs. Each `role` maps to a corresponding prompt file at `swarmforge/<role>.prompt`, so a config containing `architect`, `coder`, `reviewer`, `research`, and `release` windows would expect:
 
 - `swarmforge/architect.prompt`
@@ -96,18 +105,21 @@ This lets each project choose its own swarm shape instead of being locked to a f
 
 SwarmForge opens all roles in a single tmux session named `swarmforge`. Each configured `window` line becomes a tmux window inside that session. The first config line is selected when SwarmForge attaches, and you can use normal tmux window navigation to switch roles.
 
-Supported backend values are `claude`, `codex`, `opencode`, and `none`.
+Supported backend values are `claude`, `codex`, `opencode`, and `none`. Opencode model values are passed through to `opencode --model`, so use the model names accepted by your local opencode provider configuration, such as `deepseek-v4-pro-max`, `flash`, or provider-qualified values like `provider/model`.
 
 Example config:
 
 ```conf
 window coordinator codex master
 window coder codex coder
-window refactorer opencode refactorer
+window refactorer opencode deepseek-v4-pro-max refactorer
 window architect codex architect
+window reporter opencode none
 ```
 
 `logger` is a utility role. SwarmForge adds it automatically when the config does not include it. The logger runs with the `none` backend and displays `logs/agent_messages.log` as a formatted terminal table with message time, target role, and message text.
+
+`reporter` is an opencode-backed read-only observing role. It runs from the main project directory when its worktree is `none`, reads project state such as git status, worktrees, logs, agent context, and tmux panes, and reports what is going on without editing files or sending autonomous handoffs.
 
 In the example above, the agents run in these worktrees:
 
@@ -115,6 +127,7 @@ In the example above, the agents run in these worktrees:
 - `coder` -> `.worktrees/coder`
 - `refactorer` -> `.worktrees/refactorer`
 - `architect` -> `.worktrees/architect`
+- `reporter` -> main working directory because its worktree is `none`
 
 If a window uses `master` as its worktree name, SwarmForge does not create `.worktrees/master`; that role runs in the main working directory on the `master` branch.
 

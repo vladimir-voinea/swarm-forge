@@ -23,6 +23,14 @@ assert_not_contains() {
   fi
 }
 
+assert_contains "$ROOT_DIR/swarmforge/swarmforge.conf" "window reporter opencode none"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "read-only project reporter"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "Do not edit files"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "Do not create commits"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "Do not push branches"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "Do not merge branches"
+assert_contains "$ROOT_DIR/swarmforge/reporter.prompt" "The logger remains a separate passive log viewer"
+
 assert_contains "$ROOT_DIR/swarmforge.sh" 'Your configured agent backend for this role is: ${agent}.'
 assert_contains "$ROOT_DIR/swarmforge.sh" 'write_agent_instruction_file "$role" "$prompt_file" "$agent"'
 
