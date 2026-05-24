@@ -8,3 +8,4 @@
 - Run the relevant local verification command before handoff whenever the project has one.
 - Do not commit unrelated local changes or generated artifacts unless required for the task.
 - Before relying on an unfamiliar command, inspect local help or project documentation.
+- Run as much as possible in parallel subagents - be mindful of dependencies.
