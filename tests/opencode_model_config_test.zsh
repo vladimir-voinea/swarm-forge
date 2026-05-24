@@ -24,5 +24,5 @@ assert_contains "$SCRIPT" 'worktree="${fields[5]}"'
 assert_contains "$SCRIPT" 'append_role "$role" "$agent" "$worktree" "$model"'
 assert_contains "$SCRIPT" 'local model="${AGENT_MODELS[$index]}"'
 assert_contains "$SCRIPT" 'opencode_model_args'
-assert_contains "$SCRIPT" "--model '$model'"
+assert_contains "$SCRIPT" '--model '"'"'$model'"'"
 assert_contains "$README" 'window <role> opencode <model> <worktree>'

@@ -24,6 +24,7 @@ PROMPTS_DIR="$STATE_DIR/prompts"
 
 typeset -a ROLES=()
 typeset -a AGENTS=()
+typeset -a AGENT_MODELS=()
 typeset -a SESSIONS=()
 typeset -a DISPLAY_NAMES=()
 typeset -a WORKTREE_NAMES=()
@@ -129,6 +130,7 @@ append_role() {
   local role="$1"
   local agent="$2"
   local worktree="$3"
+  local model="${4:-}"
 
   ROLE_INDEX[$role]=${#ROLES[@]}
   if [[ "$worktree" != "none" && "$worktree" != "master" ]]; then
@@ -136,6 +138,7 @@ append_role() {
   fi
   ROLES+=("$role")
   AGENTS+=("$agent")
+  AGENT_MODELS+=("$model")
   SESSIONS+=("$(session_name_for_role "$role")")
   DISPLAY_NAMES+=("$(display_name_for_role "$role")")
   WORKTREE_NAMES+=("$worktree")
@@ -157,7 +160,7 @@ parse_config() {
     exit 1
   fi
 
-  local line keyword role agent worktree line_no=0
+  local line keyword role agent model worktree line_no=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_no=$((line_no + 1))
     line="${line#"${line%%[![:space:]]*}"}"
@@ -166,7 +169,7 @@ parse_config() {
 
     local -a fields
     fields=(${=line})
-    if (( ${#fields[@]} != 4 )); then
+    if (( ${#fields[@]} != 4 && ${#fields[@]} != 5 )); then
       echo -e "${RED}Error:${RESET} Invalid config line $line_no: $line"
       exit 1
     fi
@@ -174,7 +177,17 @@ parse_config() {
     keyword="${fields[1]}"
     role="${fields[2]}"
     agent="${fields[3]:l}"
-    worktree="${fields[4]}"
+    model=""
+    if (( ${#fields[@]} == 5 )); then
+      if [[ "$agent" != "opencode" ]]; then
+        echo -e "${RED}Error:${RESET} Model selection is only supported for opencode roles on line $line_no"
+        exit 1
+      fi
+      model="${fields[4]}"
+      worktree="${fields[5]}"
+    else
+      worktree="${fields[4]}"
+    fi
 
     if [[ "$keyword" != "window" ]]; then
       echo -e "${RED}Error:${RESET} Unknown config directive on line $line_no: $keyword"
@@ -209,7 +222,7 @@ parse_config() {
       exit 1
     fi
 
-    append_role "$role" "$agent" "$worktree"
+    append_role "$role" "$agent" "$worktree" "$model"
   done < "$CONFIG_FILE"
 
   if (( ${#ROLES[@]} == 0 )); then
@@ -457,6 +470,7 @@ launch_role() {
   local index="$1"
   local role="${ROLES[$index]}"
   local agent="${AGENTS[$index]}"
+  local model="${AGENT_MODELS[$index]}"
   local target="${SESSIONS[$index]}"
   local display="${DISPLAY_NAMES[$index]}"
   local role_worktree="${WORKTREE_PATHS[$index]}"
@@ -482,7 +496,11 @@ launch_role() {
       launch_cmd="export PATH='$SWARM_TOOLS_DIR:$SCRIPT_DIR':\$PATH && cd '$role_worktree' && codex -C '$role_worktree' \"\$(cat '$prompt_file')\""
       ;;
     opencode)
-      launch_cmd="export PATH='$SWARM_TOOLS_DIR:$SCRIPT_DIR':\$PATH && cd '$role_worktree' && opencode '$role_worktree' --prompt \"\$(cat '$prompt_file')\""
+      local opencode_model_args=""
+      if [[ -n "$model" ]]; then
+        opencode_model_args=" --model '$model'"
+      fi
+      launch_cmd="export PATH='$SWARM_TOOLS_DIR:$SCRIPT_DIR':\$PATH && cd '$role_worktree' && opencode '$role_worktree'$opencode_model_args --prompt \"\$(cat '$prompt_file')\""
       ;;
   esac
 
