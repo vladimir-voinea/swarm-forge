@@ -33,6 +33,7 @@ SwarmForge is a lightweight, tmux-based orchestration layer that:
 - **Project-Local Roles** — Each role is defined by `swarmforge/<role>.prompt` in the working tree being orchestrated.
 - **Layered Constitution** — `swarmforge/constitution.prompt` can delegate to subordinate files such as `swarmforge/constitution/project.prompt`, `engineering.prompt`, and `workflow.prompt`.
 - **Backend Selection Per Role** — A role can launch `claude`, `codex`, `opencode`, or no agent at all.
+- **Coder Pool Dispatch** — Multiple numbered coder roles can share one `coder` dispatch target, and new coder work goes to the first free coder.
 - **Observable Swarm** — Attach one terminal to tmux and switch between role windows in real time. A logger window shows formatted inter-agent messages from `logs/agent_messages.log`.
 - **Read-Only Project Reporting** — A reporter role can run on opencode to summarize repository, worktree, log, and tmux state without editing project files.
 - **Self-Hosted & Lightweight** — Runs locally in tmux and Terminal with minimal machinery.
@@ -103,6 +104,16 @@ You can define as many windows as your project needs. Each `role` maps to a corr
 
 This lets each project choose its own swarm shape instead of being locked to a fixed set of roles. The only special case is a utility role such as `logger` using the `none` backend, which opens a window without launching an agent.
 
+Coder roles have one extra convention: roles named `coder-1`, `coder-2`, and so on reuse `swarmforge/coder.prompt` and join the shared `coder` dispatch pool. A handoff to `notify-agent.sh coder "Review your rules. ..."` goes to the first coder pool member that is not marked busy. If every coder is busy, the helper queues the handoff under `.swarmforge/queues/coder/`.
+
+When a coder completes its current task, it should run the generated free command for its role:
+
+```sh
+swarmtools/notify-agent.sh --free coder-1
+```
+
+That clears `.swarmforge/agent-status/coder-1.busy`. If coder work is queued, the oldest queued handoff is immediately sent to that coder and the busy marker is created again.
+
 SwarmForge opens all roles in a single tmux session named `swarmforge`. Each configured `window` line becomes a tmux window inside that session. The first config line is selected when SwarmForge attaches, and you can use normal tmux window navigation to switch roles.
 
 Supported backend values are `claude`, `codex`, `opencode`, and `none`. Opencode model values are passed through to `opencode --model`, so use the model names accepted by your local opencode provider configuration, such as `deepseek-v4-pro-max`, `flash`, or provider-qualified values like `provider/model`.
@@ -111,7 +122,8 @@ Example config:
 
 ```conf
 window coordinator codex master
-window coder codex coder
+window coder-1 codex coder-1
+window coder-2 opencode flash coder-2
 window refactorer opencode deepseek-v4-pro-max refactorer
 window architect codex architect
 window reporter opencode none
@@ -124,7 +136,8 @@ window reporter opencode none
 In the example above, the agents run in these worktrees:
 
 - `coordinator` -> main working directory on `master`, and is the initially selected tmux window because it is listed first
-- `coder` -> `.worktrees/coder`
+- `coder-1` -> `.worktrees/coder-1`
+- `coder-2` -> `.worktrees/coder-2`
 - `refactorer` -> `.worktrees/refactorer`
 - `architect` -> `.worktrees/architect`
 - `reporter` -> main working directory because its worktree is `none`
