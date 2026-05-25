@@ -9,24 +9,7 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-# --- Argument parsing (must happen before any path resolution) ---
-REFRESH_MODE=false
-USER_WORKING_DIR=""
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --refresh)
-      REFRESH_MODE=true
-      shift
-      ;;
-    *)
-      USER_WORKING_DIR="$1"
-      shift
-      ;;
-  esac
-done
-
-WORKING_DIR="${USER_WORKING_DIR:-$PWD}"
+WORKING_DIR="${1:-$PWD}"
 WORKING_DIR="$(cd "$WORKING_DIR" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SWARM_FORGE_DIR="$WORKING_DIR/swarmforge"
@@ -525,38 +508,6 @@ launch_role() {
   echo -e "  ${CYAN}[${display}]${RESET} started in tmux window ${target}"
 }
 
-refresh_session() {
-  if ! tmux has-session -t "$SESSION_PREFIX" 2>/dev/null; then
-    echo -e "${YELLOW}No existing SwarmForge session found. Starting fresh...${RESET}"
-    return 1
-  fi
-
-  echo -e "${GREEN}${BOLD}Refreshing SwarmForge agents in session ${SESSION_PREFIX}...${RESET}"
-  echo ""
-
-  local i role target display
-  for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
-    role="${ROLES[$i]}"
-    target="${SESSIONS[$i]}"
-    display="${DISPLAY_NAMES[$i]}"
-
-    echo -e "  ${CYAN}[${display}]${RESET} interrupting current agent..."
-    tmux send-keys -t "${target}.0" C-c
-    sleep 0.3
-
-    echo -e "  ${CYAN}[${display}]${RESET} re-launching..."
-    launch_role "$i"
-  done
-
-  echo ""
-  echo -e "${GREEN}${BOLD}All agents refreshed.${RESET}"
-  echo -e "Working directory: ${WORKING_DIR}"
-  echo -e "Tmux session: ${SESSION_PREFIX}"
-  echo ""
-
-  return 0
-}
-
 check_dependency tmux
 check_dependency git
 remove_nonessential_clone_files
@@ -566,13 +517,6 @@ ensure_logger_window
 check_backend_dependencies
 prepare_workspace
 prepare_worktrees
-
-if $REFRESH_MODE; then
-  if refresh_session; then
-    exit 0
-  fi
-  # Fall through: no existing session, do a normal start
-fi
 
 if tmux has-session -t "$SESSION_PREFIX" 2>/dev/null; then
   echo -e "${YELLOW}Existing SwarmForge session found: ${SESSION_PREFIX}. Killing it...${RESET}"
