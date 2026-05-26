@@ -491,9 +491,6 @@ check_backend_dependencies() {
 create_swarm_session() {
   local role="${ROLES[1]}"
 
-create_swarm_session() {
-  local role="${ROLES[1]}"
-
   tmux -S "$TMUX_SOCKET" new-session -d -s "$SESSION_PREFIX" -n "$role"
   tmux -S "$TMUX_SOCKET" set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
 }
