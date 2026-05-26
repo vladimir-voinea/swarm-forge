@@ -11,9 +11,9 @@ RESET='\033[0m'
 
 WORKING_DIR="${1:-$PWD}"
 WORKING_DIR="$(cd "$WORKING_DIR" && pwd)"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SWARM_FORGE_DIR="$WORKING_DIR/swarmforge"
-SWARM_TOOLS_DIR="$WORKING_DIR/swarmtools"
+SCRIPT_DIR=${0:A:h}
+SWARM_FORGE_DIR="${SCRIPT_DIR:h}/swarmforge"
+SWARM_TOOLS_DIR="${SCRIPT_DIR:h}/swarmtools"
 WORKTREES_DIR="$WORKING_DIR/.worktrees"
 CONFIG_FILE="$SWARM_FORGE_DIR/swarmforge.conf"
 ROLES_DIR="$SWARM_FORGE_DIR"
@@ -274,7 +274,7 @@ write_notify_script() {
 #!/usr/bin/env zsh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR=${0:A:h}
 
 find_project_dir() {
   local git_common_dir
@@ -345,7 +345,7 @@ write_log_formatter_script() {
 #!/usr/bin/env zsh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR=${0:A:h}
 PROJECT_DIR="${SCRIPT_DIR:h}"
 SESSIONS_FILE="$PROJECT_DIR/.swarmforge/sessions.tsv"
 LOG_FILE="$PROJECT_DIR/logs/agent_messages.log"

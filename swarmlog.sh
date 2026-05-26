@@ -6,7 +6,7 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR=${0:A:h}
 LOG_FILE="$PROJECT_DIR/logs/agent_messages.log"
 
 mkdir -p "$PROJECT_DIR/logs"

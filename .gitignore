@@ -3,6 +3,7 @@
 .claude/
 .swarmforge/
 .worktrees/
-swarmtools/
 logs/
 agent_context/
+# Local Pi runtime state
+.atl/
