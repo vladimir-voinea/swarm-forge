@@ -21,6 +21,11 @@ CONSTITUTION_FILE="$SWARM_FORGE_DIR/constitution.prompt"
 STATE_DIR="$WORKING_DIR/.swarmforge"
 SESSIONS_FILE="$STATE_DIR/sessions.tsv"
 PROMPTS_DIR="$STATE_DIR/prompts"
+TMUX_SOCKET_DIR="/private/tmp/swarmforge-${UID}"
+PROJECT_SOCKET_ID="$(printf '%s' "$WORKING_DIR" | cksum)"
+PROJECT_SOCKET_ID="${PROJECT_SOCKET_ID%% *}"
+TMUX_SOCKET="$TMUX_SOCKET_DIR/$PROJECT_SOCKET_ID.sock"
+TMUX_SOCKET_FILE="$STATE_DIR/tmux-socket"
 
 typeset -a ROLES=()
 typeset -a AGENTS=()
@@ -73,6 +78,20 @@ EOF
   if ! grep -qx 'swarmtools/' "$gitignore_file"; then
     echo 'swarmtools/' >> "$gitignore_file"
   fi
+}
+
+ensure_runtime_git_excludes() {
+  local exclude_file
+  exclude_file="$(git -C "$WORKING_DIR" rev-parse --git-path info/exclude)"
+  mkdir -p "${exclude_file:h}"
+  touch "$exclude_file"
+
+  local pattern
+  for pattern in ".swarmforge/" ".worktrees/" "swarmtools/" "logs/" "agent_context/"; do
+    if ! grep -qx "$pattern" "$exclude_file"; then
+      echo "$pattern" >> "$exclude_file"
+    fi
+  done
 }
 
 initialize_git_repo() {
@@ -295,10 +314,16 @@ find_project_dir() {
 
 PROJECT_DIR="$(find_project_dir)"
 SESSIONS_FILE="$PROJECT_DIR/.swarmforge/sessions.tsv"
-LOG_FILE="$PROJECT_DIR/logs/agent_messages.log"
+TMUX_SOCKET_FILE="$PROJECT_DIR/.swarmforge/tmux-socket"
+if [[ ! -f "$TMUX_SOCKET_FILE" ]]; then
+  echo "Tmux socket file not found: $TMUX_SOCKET_FILE" >&2
+  exit 1
+fi
+TMUX_SOCKET="$(< "$TMUX_SOCKET_FILE")"
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: notify-agent.sh <target-role-or-index> \"message\"" >&2
+  echo "       notify-agent.sh <target-role-or-index> --file <message-file>" >&2
   exit 1
 fi
 
@@ -326,15 +351,27 @@ TARGET_PANE=$(resolve_session "$1") || {
   exit 1
 }
 
-MESSAGE="${*:2}"
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-mkdir -p "$PROJECT_DIR/logs"
-echo "[$TIMESTAMP] [$TARGET_PANE] $MESSAGE" >> "$LOG_FILE"
-tmux send-keys -t "${TARGET_PANE}.0" -l -- "$MESSAGE"
+shift
+if [[ "${1:-}" == "--file" ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "Usage: notify-agent.sh <target-role-or-index> --file <message-file>" >&2
+    exit 1
+  fi
+  MESSAGE_FILE="$2"
+  if [[ ! -f "$MESSAGE_FILE" ]]; then
+    echo "Message file not found: $MESSAGE_FILE" >&2
+    exit 1
+  fi
+  MESSAGE="$(< "$MESSAGE_FILE")"
+else
+  MESSAGE="$*"
+fi
+
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" -l -- "$MESSAGE"
 sleep 0.15
-tmux send-keys -t "${TARGET_PANE}.0" C-m
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" C-m
 sleep 0.05
-tmux send-keys -t "${TARGET_PANE}.0" C-j
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" C-j
 EOF
 
   chmod +x "$SWARM_TOOLS_DIR/notify-agent.sh"
@@ -396,12 +433,29 @@ EOF
 }
 
 prepare_workspace() {
-  mkdir -p "$WORKING_DIR/logs" "$WORKING_DIR/agent_context" "$STATE_DIR" "$PROMPTS_DIR" "$SWARM_TOOLS_DIR" "$WORKTREES_DIR"
+  mkdir -p "$WORKING_DIR/logs" "$WORKING_DIR/agent_context" "$STATE_DIR" "$PROMPTS_DIR" "$SWARM_TOOLS_DIR" "$WORKTREES_DIR" "$TMUX_SOCKET_DIR"
+  printf '%s\n' "$TMUX_SOCKET" > "$TMUX_SOCKET_FILE"
   remove_obsolete_terminal_window_state
   check_helper_scripts
   write_sessions_file
   write_notify_script
   write_log_formatter_script
+}
+
+write_worktree_notify_wrapper() {
+  local worktree_path="$1"
+  local wrapper_dir="$worktree_path/swarmtools"
+  local wrapper="$wrapper_dir/notify-agent.sh"
+  local canonical_notify="$SWARM_TOOLS_DIR/notify-agent.sh"
+
+  mkdir -p "$wrapper_dir"
+  {
+    echo '#!/usr/bin/env zsh'
+    echo 'set -euo pipefail'
+    printf 'CANONICAL_NOTIFY_AGENT=%q\n' "$canonical_notify"
+    echo 'exec "$CANONICAL_NOTIFY_AGENT" "$@"'
+  } > "$wrapper"
+  chmod +x "$wrapper"
 }
 
 prepare_worktrees() {
@@ -415,11 +469,11 @@ prepare_worktrees() {
       continue
     fi
 
-    if [[ -e "$worktree_path/.git" || -d "$worktree_path/.git" ]]; then
-      continue
+    if [[ ! -e "$worktree_path/.git" && ! -d "$worktree_path/.git" ]]; then
+      git -C "$WORKING_DIR" worktree add --force -B "$branch_name" "$worktree_path" HEAD >/dev/null
     fi
 
-    git -C "$WORKING_DIR" worktree add --force -B "$branch_name" "$worktree_path" HEAD >/dev/null
+    write_worktree_notify_wrapper "$worktree_path"
   done
 }
 
@@ -437,8 +491,11 @@ check_backend_dependencies() {
 create_swarm_session() {
   local role="${ROLES[1]}"
 
-  tmux new-session -d -s "$SESSION_PREFIX" -n "$role"
-  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
+create_swarm_session() {
+  local role="${ROLES[1]}"
+
+  tmux -S "$TMUX_SOCKET" new-session -d -s "$SESSION_PREFIX" -n "$role"
+  tmux -S "$TMUX_SOCKET" set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
 }
 
 create_role_window() {
@@ -449,8 +506,8 @@ create_role_window() {
     return
   fi
 
-  tmux new-window -t "$SESSION_PREFIX" -n "$role"
-  tmux set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
+  tmux -S "$TMUX_SOCKET" new-window -t "$SESSION_PREFIX" -n "$role"
+  tmux -S "$TMUX_SOCKET" set-window-option -t "$SESSION_PREFIX:$role" allow-rename off
 }
 
 write_agent_instruction_file() {
@@ -477,15 +534,6 @@ launch_role() {
   local prompt_file="$PROMPTS_DIR/${role}.md"
   local launch_cmd=""
 
-  if [[ "$agent" == "none" ]]; then
-    if [[ "$role" == "logger" ]]; then
-      tmux send-keys -t "${target}.0" \
-        "cd '$WORKING_DIR' && '$SWARM_TOOLS_DIR/format-agent-log.sh'" Enter
-    fi
-    echo -e "  ${CYAN}[${display}]${RESET} opened without agent backend"
-    return
-  fi
-
   write_agent_instruction_file "$role" "$prompt_file" "$agent"
 
   case "$agent" in
@@ -504,7 +552,7 @@ launch_role() {
       ;;
   esac
 
-  tmux send-keys -t "${target}.0" "$launch_cmd" Enter
+  tmux -S "$TMUX_SOCKET" send-keys -t "${target}.0" "$launch_cmd" Enter
   echo -e "  ${CYAN}[${display}]${RESET} started in tmux window ${target}"
 }
 
@@ -512,15 +560,16 @@ check_dependency tmux
 check_dependency git
 remove_nonessential_clone_files
 initialize_git_repo
+ensure_runtime_git_excludes
 parse_config
 ensure_logger_window
 check_backend_dependencies
 prepare_workspace
 prepare_worktrees
 
-if tmux has-session -t "$SESSION_PREFIX" 2>/dev/null; then
+if tmux -S "$TMUX_SOCKET" has-session -t "$SESSION_PREFIX" 2>/dev/null; then
   echo -e "${YELLOW}Existing SwarmForge session found: ${SESSION_PREFIX}. Killing it...${RESET}"
-  tmux kill-session -t "$SESSION_PREFIX"
+  tmux -S "$TMUX_SOCKET" kill-session -t "$SESSION_PREFIX"
 fi
 
 echo -e "${CYAN}${BOLD}"
@@ -550,8 +599,8 @@ for (( i = 1; i <= ${#ROLES[@]}; i++ )); do
   echo -e "  ${DISPLAY_NAMES[$i]}: ${SESSIONS[$i]}"
 done
 echo ""
-echo -e "${GREEN}Tip: Use $WORKING_DIR/swarmtools/notify-agent.sh <role-or-index> \"message\" while the swarm is running.${RESET}"
-echo -e "${GREEN}Tip: Switch role windows with the normal tmux window controls.${RESET}"
+echo -e "${GREEN}Tip: Use $WORKING_DIR/swarmtools/notify-agent.sh <role-or-index> --file <message-file> while the swarm is running.${RESET}"
+echo -e "${GREEN}Tip: Reattach manually with 'tmux -S $TMUX_SOCKET attach-session -t $SESSION_PREFIX' if needed.${RESET}"
 echo ""
 
-tmux attach-session -t "$SESSION_PREFIX"
+tmux -S "$TMUX_SOCKET" attach-session -t "$SESSION_PREFIX"
