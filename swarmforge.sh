@@ -367,11 +367,11 @@ else
   MESSAGE="$*"
 fi
 
-tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" -l -- "$MESSAGE"
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_PANE}.0" -l -- "$MESSAGE"
 sleep 0.15
-tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" C-m
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_PANE}.0" C-m
 sleep 0.05
-tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_SESSION}:0.0" C-j
+tmux -S "$TMUX_SOCKET" send-keys -t "${TARGET_PANE}.0" C-j
 EOF
 
   chmod +x "$SWARM_TOOLS_DIR/notify-agent.sh"
