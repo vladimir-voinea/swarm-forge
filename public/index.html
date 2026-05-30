@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SwarmForge Coordinator</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SwarmForge</p>
+        <h1>Coordinator</h1>
+      </div>
+      <div id="connection-state" class="connection-state" data-state="checking">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="connection-label">Checking coordinator</span>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="panel setup-panel" aria-labelledby="setup-title">
+        <div class="panel-heading">
+          <h2 id="setup-title">Swarm Setup</h2>
+          <button id="refresh-button" class="icon-button" type="button" title="Refresh state" aria-label="Refresh state">↻</button>
+        </div>
+
+        <form id="swarm-form" class="form-stack">
+          <label>
+            <span>Name</span>
+            <input id="swarm-name" name="name" value="Project swarm" autocomplete="off" required>
+          </label>
+          <label>
+            <span>Project directory</span>
+            <input id="project-dir" name="projectDir" value="/Users/vladimir/dev/swarm-forge" autocomplete="off" required>
+          </label>
+          <label>
+            <span>Roles</span>
+            <textarea id="role-list" name="roles" rows="4">architect
+coder
+reviewer</textarea>
+          </label>
+          <button class="primary-button" type="submit">Create swarm</button>
+        </form>
+
+        <div class="swarm-list">
+          <h3>Active Swarms</h3>
+          <div id="swarm-list" class="compact-list"></div>
+        </div>
+      </section>
+
+      <section class="work-area">
+        <section class="panel roles-panel" aria-labelledby="roles-title">
+          <div class="panel-heading">
+            <h2 id="roles-title">Roles</h2>
+            <span id="role-count" class="metric-pill">0 active</span>
+          </div>
+          <div id="role-grid" class="role-grid"></div>
+        </section>
+
+        <section class="panel task-panel" aria-labelledby="task-title">
+          <div class="panel-heading">
+            <h2 id="task-title">Task Dispatch</h2>
+            <span id="selected-swarm-label" class="muted">No swarm selected</span>
+          </div>
+          <form id="task-form" class="task-form">
+            <label>
+              <span>Target role</span>
+              <select id="target-role" name="targetRole" required></select>
+            </label>
+            <label>
+              <span>Title</span>
+              <input id="task-title-input" name="title" autocomplete="off" required>
+            </label>
+            <label class="prompt-field">
+              <span>Prompt</span>
+              <textarea id="task-prompt" name="prompt" rows="4" required></textarea>
+            </label>
+            <button class="primary-button" type="submit">Send task</button>
+          </form>
+        </section>
+
+        <section class="panel timeline-panel" aria-labelledby="timeline-title">
+          <div class="panel-heading">
+            <h2 id="timeline-title">Timeline</h2>
+            <span id="event-count" class="metric-pill">0 events</span>
+          </div>
+          <ol id="event-timeline" class="event-timeline"></ol>
+        </section>
+      </section>
+
+      <aside id="transcript-panel" class="panel transcript-panel" aria-labelledby="transcript-title">
+        <div class="panel-heading">
+          <h2 id="transcript-title">Transcript</h2>
+          <span id="task-count" class="metric-pill">0 tasks</span>
+        </div>
+        <div id="transcript-list" class="transcript-list"></div>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
