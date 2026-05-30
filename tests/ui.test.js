@@ -8,6 +8,7 @@ test('dashboard includes operational control regions', async () => {
   for (const id of [
     'connection-state',
     'swarm-form',
+    'swarm-model',
     'role-grid',
     'task-form',
     'event-timeline',
@@ -34,4 +35,14 @@ test('dashboard script calls the coordinator API', async () => {
   assert.match(script, /\/api\/health/);
   assert.match(script, /\/api\/swarms/);
   assert.match(script, /\/tasks/);
+});
+
+test('dashboard defaults new role sessions to DeepSeek V4 Flash', async () => {
+  const html = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const script = await fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(html, /id="swarm-model"/);
+  assert.match(html, /value="deepseek\/deepseek-v4-flash"/);
+  assert.match(script, /form\.get\('model'\)/);
+  assert.match(script, /model: selectedModel/);
 });

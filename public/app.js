@@ -59,11 +59,12 @@ async function loadSwarms() {
 async function createSwarm(event) {
   event.preventDefault();
   const form = new FormData(elements.swarmForm);
+  const selectedModel = String(form.get('model')).trim();
   const roles = String(form.get('roles'))
     .split(/\r?\n|,/)
     .map((role) => role.trim())
     .filter(Boolean)
-    .map((name) => ({ name }));
+    .map((name) => ({ name, model: selectedModel }));
 
   try {
     const body = await api('/api/swarms', {
