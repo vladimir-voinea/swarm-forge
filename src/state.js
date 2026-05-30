@@ -11,7 +11,7 @@ function normalizeRole(role) {
 
   return {
     name: role.name,
-    agent: role.agent ?? 'opencode',
+    agent: role.agent ?? 'build',
     model: role.model ?? null,
     prompt: role.prompt ?? '',
     status: 'pending',

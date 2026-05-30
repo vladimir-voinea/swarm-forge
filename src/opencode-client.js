@@ -26,7 +26,7 @@ export class OpenCodeClient {
   async sendPromptAsync({ sessionId, agent, model, system, text }) {
     const body = {
       agent,
-      model,
+      model: normalizeModel(model),
       system,
       parts: [{ type: 'text', text }]
     };
@@ -74,4 +74,20 @@ export class OpenCodeClient {
 
     return JSON.parse(text);
   }
+}
+
+function normalizeModel(model) {
+  if (typeof model !== 'string') {
+    return model;
+  }
+
+  const separator = model.indexOf('/');
+  if (separator === -1) {
+    return model;
+  }
+
+  return {
+    providerID: model.slice(0, separator),
+    modelID: model.slice(separator + 1)
+  };
 }

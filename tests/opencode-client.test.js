@@ -53,9 +53,29 @@ test('sendPromptAsync posts an opencode prompt_async message', async () => {
   assert.equal(calls[0].url, 'http://127.0.0.1:4096/session/ses_123/prompt_async');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     agent: 'build',
-    model: 'anthropic/claude-sonnet-4-5',
+    model: {
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet-4-5'
+    },
     system: 'You are the coder.',
     parts: [{ type: 'text', text: 'Implement checkout validation.' }]
+  });
+});
+
+test('sendPromptAsync splits DeepSeek provider model strings for the opencode API', async () => {
+  const { calls, fetchImpl } = createFetchRecorder([{ status: 204, body: null }]);
+  const client = new OpenCodeClient({ baseUrl: 'http://127.0.0.1:4096', fetchImpl });
+
+  await client.sendPromptAsync({
+    sessionId: 'ses_123',
+    agent: 'build',
+    model: 'deepseek/deepseek-v4-flash',
+    text: 'Say hello.'
+  });
+
+  assert.deepEqual(JSON.parse(calls[0].options.body).model, {
+    providerID: 'deepseek',
+    modelID: 'deepseek-v4-flash'
   });
 });
 

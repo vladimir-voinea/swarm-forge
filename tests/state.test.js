@@ -27,6 +27,7 @@ test('createSwarm registers roles with pending sessions', () => {
   assert.equal(swarm.id, 'swarm_1');
   assert.equal(swarm.roles.architect.status, 'pending');
   assert.equal(swarm.roles.coder.status, 'pending');
+  assert.equal(swarm.roles.coder.agent, 'build');
   assert.equal(swarm.roles.coder.sessionId, null);
   assert.equal(state.listSwarms().length, 1);
   assert.equal(swarm.events[0].type, 'swarm.created');
