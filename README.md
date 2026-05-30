@@ -4,34 +4,49 @@ Do not spend any money on a bankrbot SWARM token.
 
 # SwarmForge
 
-**A disciplined tmux-based agent orchestration platform that turns swarms of AI agents into reliable, professional software engineers.**
+**A disciplined agent orchestration platform that turns swarms of AI agents into reliable, professional software engineers.**
 
 ## Intent
 
-SwarmForge is an agent coordination system that facilitates communication between agents working in different git worktrees.
+SwarmForge is an agent coordination system that facilitates communication between role-based AI agents.
 
-It provides a shared structure for role-specific prompts, worktree assignment, tmux sessions, and message passing so multiple agents can collaborate on the same project without stepping on each other.
+It provides a shared structure for role-specific prompts, task assignment, session coordination, and handoffs so multiple agents can collaborate on the same project without stepping on each other.
 
 ## What SwarmForge Does
 
-SwarmForge is a lightweight, tmux-based orchestration layer that:
+SwarmForge has two orchestration paths:
+
+- A legacy tmux runner in `swarmforge.sh`
+- A coordinator service in `src/server.js` that drives `opencode serve` over HTTP and exposes a browser control UI plus MCP callback tools
+
+The legacy runner:
 
 - Launches a **config-driven swarm** from a project-local `swarmforge/swarmforge.conf`
 - Creates one tmux session and one Terminal window per configured role
 - Reads behavior from project-local `swarmforge/<role>.prompt` files plus a layered `swarmforge/constitution.prompt`
-- Supports per-role backends such as `claude` or `codex`
+- Supports per-role backends such as `claude`, `codex`, or `opencode`
 - Creates a project-local `swarmtools/` directory with notification helpers for the active swarm
 - Creates one git worktree per configured role under `.worktrees/`
 - Initializes a git repository in a new working directory and creates a first commit with `logs/` and `agent_context/` ignored
 - Keeps all swarm state local to the working directory in `.swarmforge/`
+
+The coordinator service:
+
+- Creates one opencode HTTP session per configured role
+- Sends role and task prompts through the opencode server API
+- Keeps swarm, role, task, and event state in memory for the MVP
+- Serves a local browser dashboard for swarm creation, task dispatch, role status, timeline, and transcript review
+- Exposes MCP tools for agent callbacks such as progress updates, handoffs, blocked status, and task completion
 
 ## Core Features
 
 - **Config-Driven Topology** — The swarm shape comes from `swarmforge/swarmforge.conf`, not hardcoded shell variables.
 - **Project-Local Roles** — Each role is defined by `swarmforge/<role>.prompt` in the working tree being orchestrated.
 - **Layered Constitution** — `swarmforge/constitution.prompt` can delegate to subordinate files such as `swarmforge/constitution/project.prompt`, `engineering.prompt`, and `workflow.prompt`.
-- **Backend Selection Per Role** — A role can launch `claude` or `codex`.
+- **Backend Selection Per Role** — A role can launch `claude`, `codex`, or `opencode`.
 - **Observable Swarm** — Open one Terminal window per role and watch the sessions in real time.
+- **Coordinator UI** — Run a browser-based control surface for opencode-backed role sessions.
+- **MCP Agent Callbacks** — Let opencode sessions report progress and handoffs through shared SwarmForge tools.
 - **Self-Hosted & Lightweight** — Runs locally in tmux and Terminal with minimal machinery.
 
 ## Constitution And Roles
@@ -78,7 +93,10 @@ The default three-agent workflow is:
 
 ```conf
 window <role> <agent> <worktree>
+window <role> opencode <model> <worktree>
 ```
+
+The four-field form uses the agent backend's default model. The five-field form is only valid for `opencode` roles and passes the selected model to opencode.
 
 You can define as many windows as your project needs. Each `role` maps to a corresponding prompt file at `swarmforge/<role>.prompt`, so a config containing `architect`, `coder`, `reviewer`, `research`, and `release` windows would expect:
 
@@ -116,6 +134,37 @@ In the example above, the agents run in these worktrees:
 
 If a window uses `master` as its worktree name, SwarmForge does not create `.worktrees/master`; that role runs in the main working directory on the `master` branch.
 
+## Coordinator Service
+
+The coordinator path removes tmux and generated coordination files from the active control loop. Run `opencode serve` separately, then start the coordinator:
+
+```sh
+OPENCODE_URL=http://127.0.0.1:4096 PORT=7345 npm start
+```
+
+Open the dashboard at:
+
+```text
+http://127.0.0.1:7345
+```
+
+The dashboard can create a swarm, create one opencode session per role, dispatch tasks to a selected role, and show role status, task history, timeline events, and transcript entries.
+
+The coordinator also exposes an MCP-over-HTTP endpoint at:
+
+```text
+http://127.0.0.1:7345/mcp
+```
+
+Configure opencode role sessions to use that MCP endpoint when they need shared SwarmForge tools. The current tools are:
+
+- `swarmforge_report_progress`
+- `swarmforge_send_handoff`
+- `swarmforge_mark_blocked`
+- `swarmforge_complete_task`
+
+The first coordinator implementation keeps state in memory. Restarting the coordinator clears swarms, role session mappings, tasks, and event history.
+
 ## Examples
 
 The repository includes example swarm definitions under `examples/`.
@@ -135,3 +184,9 @@ Use these example directories as starting points for project-local `swarmforge/`
 ## Running SwarmForge
 
 Just type `swarm`. The windows should all pop up.
+
+For the coordinator service, use:
+
+```sh
+npm start
+```

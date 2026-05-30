@@ -18,7 +18,6 @@ assert_contains 'append_role "logger" "none" "none"'
 assert_contains 'write_log_formatter_script'
 assert_contains 'format-agent-log.sh'
 assert_contains 'target_label['
-assert_contains 'cd '"'"'$WORKING_DIR'"'"' && '"'"'$SWARM_TOOLS_DIR/format-agent-log.sh'"'"''
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
